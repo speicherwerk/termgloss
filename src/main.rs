@@ -1,0 +1,90 @@
+use std::{
+    collections::HashMap,
+    fs::{File, OpenOptions},
+    io::{BufRead, BufReader, BufWriter, Write},
+    process::ExitCode,
+};
+
+use clap::Parser;
+use itertools::Itertools;
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[command(
+    version,
+    about = "Generate sorted glossary of all /-terms in the given typsts files"
+)]
+struct Args {
+    /// Where to find the /-terms
+    #[arg(required = true, num_args = 1..)]
+    inputs: Vec<PathBuf>,
+
+    /// Where to write the glossary to.
+    /// NOTE: This file will get created or truncated (all previous contents deleted)!
+    #[arg(short, long)]
+    output: PathBuf,
+}
+
+fn main() -> ExitCode {
+    let args = Args::parse();
+
+    let mut terms = HashMap::new();
+    for path in args.inputs {
+        if let Err(e) = parse_input_file(path, &mut terms) {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    let dst_file = match OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&args.output)
+    {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("error opening `{:?}`: {e}", args.output);
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut buf_writer = BufWriter::new(dst_file);
+
+    for (term, def_lines) in terms.iter().sorted() {
+        write!(buf_writer, "/ {term}:")
+            .expect("error writing to `{dst}`, might have partially written");
+        for def_line in def_lines {
+            writeln!(buf_writer, "{def_line}").expect("error while writing to `{dst}`");
+        }
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn parse_input_file(path: PathBuf, terms: &mut HashMap<String, Vec<String>>) -> Result<(), String> {
+    let file = File::open(&path).map_err(|e| format!("Error opening `{path:?}`: {e}"))?;
+    let buf_read = BufReader::new(file);
+    let mut lines = buf_read.lines().peekable();
+
+    while let Some(line) = lines.next() {
+        let line = line.map_err(|e| format!("error reading `{path:?}`: {e}"))?;
+        let trimmed_line = line.trim_start();
+        if trimmed_line.starts_with("/ ") {
+            let Some((term, def_first_line)) = trimmed_line[2..trimmed_line.len()].split_once(':')
+            else {
+                continue;
+            };
+            let mut def_lines = vec![def_first_line.to_owned()];
+            while let Some(Ok(next_line)) = lines.peek() {
+                if next_line.starts_with(char::is_whitespace) {
+                    // unwrapping is guaranteed safe
+                    def_lines.push(lines.next().unwrap().unwrap());
+                } else {
+                    break;
+                }
+            }
+            terms.insert(term.to_owned(), def_lines);
+        }
+    }
+    Ok(())
+}
