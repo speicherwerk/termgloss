@@ -36,19 +36,24 @@ fn main() -> ExitCode {
         }
     }
 
-    let dst_file = match OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&args.output)
-    {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("error opening `{:?}`: {e}", args.output);
-            return ExitCode::FAILURE;
-        }
+    let writer: Box<dyn Write> = if args.output == PathBuf::from("-") {
+        Box::new(std::io::stdout())
+    } else {
+        let dst_file = match OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&args.output)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("error opening `{:?}`: {e}", args.output);
+                return ExitCode::FAILURE;
+            }
+        };
+        Box::new(dst_file)
     };
-    let mut buf_writer = BufWriter::new(dst_file);
+    let mut buf_writer = BufWriter::new(writer);
 
     writeln!(
         buf_writer,
