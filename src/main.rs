@@ -90,10 +90,22 @@ fn parse_input_file(
                 continue;
             };
             let mut def_lines = vec![def_first_line.to_owned()];
+            // When seeing an empty line, it belongs to the term, iff the next non-empty line is
+            // indented.
+            let mut empty_lines_possibly_beloning = 0;
             while let Some(Ok(next_line)) = lines.peek() {
                 if next_line.starts_with(char::is_whitespace) {
+                    def_lines.extend(std::iter::repeat_n(
+                        String::new(),
+                        empty_lines_possibly_beloning,
+                    ));
+                    empty_lines_possibly_beloning = 0;
                     // unwrapping is guaranteed safe
                     def_lines.push(lines.next().unwrap().unwrap());
+                } else if next_line.is_empty() {
+                    empty_lines_possibly_beloning += 1;
+                    lines.next();
+                    continue;
                 } else {
                     break;
                 }
